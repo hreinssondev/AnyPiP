@@ -20,14 +20,12 @@ https://github.com/user-attachments/assets/4e27c05c-18d4-44f4-bad9-2c2ffea8da56
 
 You can also verify the project from Terminal:
 
-## First Run
+## First Startup
 
 AnyPiP needs macOS permissions to capture and manage windows:
 
 - Screen Recording: required by ScreenCaptureKit.
 - Accessibility: required to move, restore, and focus source windows.
-
-The app links directly to the relevant System Settings panes when a permission is missing.
 
 ## License
 
