@@ -1,0 +1,34 @@
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# User-specific Xcode data
+xcuserdata/
+*.xcuserdatad/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# macOS app archives and exports
+dist/
+*.xcarchive
+ExportOptions.plist
+
+# Signing and local configuration
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+DeveloperID*
