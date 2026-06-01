@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		079983172FBE353A001AC373 /* AppsPIP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AppsPIP.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		079983172FBE353A001AC373 /* AnyPIP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnyPIP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		079983182FBE353A001AC373 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				079983172FBE353A001AC373 /* AppsPIP.app */,
+				079983172FBE353A001AC373 /* AnyPIP.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		079983162FBE353A001AC373 /* AppsPIP */ = {
+		079983162FBE353A001AC373 /* AnyPIP */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 079983222FBE353C001AC373 /* Build configuration list for PBXNativeTarget "AppsPIP" */;
+			buildConfigurationList = 079983222FBE353C001AC373 /* Build configuration list for PBXNativeTarget "AnyPIP" */;
 			buildPhases = (
 				079983132FBE353A001AC373 /* Sources */,
 				079983142FBE353A001AC373 /* Frameworks */,
@@ -63,11 +63,11 @@
 			fileSystemSynchronizedGroups = (
 				079983192FBE353A001AC373 /* AppsPIP */,
 			);
-			name = AppsPIP;
+			name = AnyPIP;
 			packageProductDependencies = (
 			);
 			productName = AppsPIP;
-			productReference = 079983172FBE353A001AC373 /* AppsPIP.app */;
+			productReference = 079983172FBE353A001AC373 /* AnyPIP.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 079983122FBE353A001AC373 /* Build configuration list for PBXProject "AppsPIP" */;
+			buildConfigurationList = 079983122FBE353A001AC373 /* Build configuration list for PBXProject "AnyPIP" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				079983162FBE353A001AC373 /* AppsPIP */,
+				079983162FBE353A001AC373 /* AnyPIP */,
 			);
 		};
 /* End PBXProject section */
@@ -250,11 +250,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 8FB39RNRQQ;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -266,9 +267,11 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = appspip.AppsPIP;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = AnyPIP.AnyPIP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -284,11 +287,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 8FB39RNRQQ;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -300,9 +304,11 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = appspip.AppsPIP;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = AnyPIP.AnyPIP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -316,7 +322,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		079983122FBE353A001AC373 /* Build configuration list for PBXProject "AppsPIP" */ = {
+		079983122FBE353A001AC373 /* Build configuration list for PBXProject "AnyPIP" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				079983202FBE353C001AC373 /* Debug */,
@@ -325,7 +331,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		079983222FBE353C001AC373 /* Build configuration list for PBXNativeTarget "AppsPIP" */ = {
+		079983222FBE353C001AC373 /* Build configuration list for PBXNativeTarget "AnyPIP" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				079983232FBE353C001AC373 /* Debug */,

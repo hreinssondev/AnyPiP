@@ -51,15 +51,6 @@ final class AppCoordinator: ObservableObject {
             }
         }
 
-        var cachesRestoreSnapshot: Bool {
-            switch self {
-            case .interactive:
-                return true
-            case .passiveAutomatic:
-                return true
-            }
-        }
-
         var usesSavedManualFrame: Bool {
             switch self {
             case .interactive:
@@ -79,9 +70,9 @@ final class AppCoordinator: ObservableObject {
     @Published var primaryDoubleTapKeyInput = "P"
     @Published var doubleTapKeyInput = "⎋"
     @Published var primarySingleKeyInput = "P"
-    @Published var doubleTapSingleKeyInput = "⎋"
+    @Published var doubleTapSingleKeyInput = "P"
     @Published var primaryShortcutMode: ShortcutTriggerMode = .modifierKey
-    @Published var doubleTapShortcutMode: ShortcutTriggerMode = .doublePress
+    @Published var doubleTapShortcutMode: ShortcutTriggerMode = .singleKey
     @Published var hoverSwitchEnabled = UserDefaults.standard.bool(forKey: "HoverSwitchEnabled")
     @Published private(set) var autoPiPAppSelections: [AutoPiPAppSelection] = []
     @Published private(set) var availableAutoPiPApps: [AutoPiPAppSelection] = []
@@ -96,7 +87,7 @@ final class AppCoordinator: ObservableObject {
     private var currentPrimaryDoubleTapKeyCode: UInt16 = UInt16(kVK_ANSI_P)
     private var currentDoubleTapKeyCode: UInt16 = UInt16(kVK_Escape)
     private var currentPrimarySingleKeyCode: UInt16 = UInt16(kVK_ANSI_P)
-    private var currentDoubleTapSingleKeyCode: UInt16 = UInt16(kVK_Escape)
+    private var currentDoubleTapSingleKeyCode: UInt16 = UInt16(kVK_ANSI_P)
     private var captureSession: WindowCaptureSession?
     private var pipWindowController: PiPWindowController?
     private var activeTarget: WindowTarget?
@@ -114,12 +105,7 @@ final class AppCoordinator: ObservableObject {
     private let windowOrderController = WindowOrderController()
     private let shouldFallBackToFakeHideAfterPrivateAlphaFailure = false
     private var lastPrimaryDoublePressDate: Date?
-    private var lastExitDoublePressDate: Date?
     private var lastDoubleTapKeyPressDate: Date?
-    private var lastExitedTargetSnapshot: WindowTarget?
-    private var lastExitedSourceFrameSnapshot: CGRect?
-    private var lastExitedHideStrategySnapshot: SourceHideStrategy?
-    private var lastExitedHoverSwitchEnabledSnapshot: Bool?
     private var isHotKeyRecordingActive = false
     private var activePiPBehavior: PiPEntryBehavior = .interactive
     private var lastObservedActivatedApp: NSRunningApplication?
@@ -128,7 +114,7 @@ final class AppCoordinator: ObservableObject {
 
     private static let autoPiPAppSelectionsKey = "AutoPiPAppSelections"
 
-    var doubleTapActionInstructionText: String {
+    var glanceShortcutInstructionText: String {
         switch doubleTapShortcutMode {
         case .doublePress:
             return "\(doubleTapKeyInput) twice"
@@ -229,9 +215,6 @@ final class AppCoordinator: ObservableObject {
                 if self.shouldShowSourceForManualPiPAfterSourceActivation(activatedApp) {
                     self.showSourceForManualPiPAfterSourceActivation()
                 } else if self.shouldStopPiPAfterSourceActivation(activatedApp) {
-                    if self.activePiPBehavior.cachesRestoreSnapshot {
-                        self.cacheCurrentPiPForRestore()
-                    }
                     await self.stopPiP(restoreSource: true, focusSource: true)
                 }
 
@@ -355,22 +338,12 @@ final class AppCoordinator: ObservableObject {
 
     func exitPiP() {
         Task {
-            if activePiPBehavior.cachesRestoreSnapshot {
-                cacheCurrentPiPForRestore()
-            } else {
-                clearLastExitedPiPSnapshot()
-            }
             await stopPiP(restoreSource: true, focusSource: false)
         }
     }
 
     func closePiP() {
         Task {
-            if activePiPBehavior.cachesRestoreSnapshot {
-                cacheCurrentPiPForRestore()
-            } else {
-                clearLastExitedPiPSnapshot()
-            }
             await stopPiP(restoreSource: false, focusSource: false)
         }
     }
@@ -378,7 +351,6 @@ final class AppCoordinator: ObservableObject {
     private func handleSingleEscapePress() {
         guard activeTarget != nil else { return }
         lastPrimaryDoublePressDate = nil
-        lastExitDoublePressDate = nil
         lastDoubleTapKeyPressDate = nil
         exitPiP()
     }
@@ -399,38 +371,25 @@ final class AppCoordinator: ObservableObject {
 
     private func resetDoublePressDates() {
         lastPrimaryDoublePressDate = nil
-        lastExitDoublePressDate = nil
         lastDoubleTapKeyPressDate = nil
     }
 
-    private func handleDoubleTapKeyAction() {
-        if activeTarget != nil {
-            exitPiP()
-        } else if let snapshot = lastExitedTargetSnapshot {
-            Task {
-                await restoreLastExitedPiP(snapshot)
-            }
-        }
-    }
-
-    private func restoreLastExitedPiP(_ target: WindowTarget) async {
-        refreshPermissions()
-
-        guard isScreenRecordingTrusted, isAccessibilityTrusted else {
-            statusText = "Screen Recording and Accessibility permissions are required to restore PiP."
+    private func handleGlanceShortcut() {
+        guard activeTarget != nil else {
+            statusText = "No active PiP window to glance."
             return
         }
 
-        hoverSwitchEnabled = lastExitedHoverSwitchEnabledSnapshot ?? hoverSwitchEnabled
-        await beginPiP(
-            for: target,
-            behavior: .interactive,
-            sourceFrame: lastExitedSourceFrameSnapshot ?? target.frame,
-            startupStatusText: "Restoring PiP for \(target.appName)…"
-        )
-
-        if activeTarget != nil, let lastExitedHideStrategySnapshot {
-            sourceHideStrategy = lastExitedHideStrategySnapshot
+        switch activePiPBehavior {
+        case .interactive:
+            toggleGlance()
+        case .passiveAutomatic:
+            if isGlancing {
+                sendBackToPiP()
+            } else {
+                pipWindowController?.show()
+                statusText = "PiP window brought forward."
+            }
         }
     }
 
@@ -462,7 +421,7 @@ final class AppCoordinator: ObservableObject {
             keyCode: currentDoubleTapHotKeyCode,
             modifiers: currentDoubleTapHotKeyModifiers
         ) { [weak self] in
-            self?.handleDoubleTapKeyAction()
+            self?.handleGlanceShortcut()
         }
     }
 
@@ -540,7 +499,7 @@ final class AppCoordinator: ObservableObject {
         doubleTapActionHotKey = nil
         registerDoubleTapActionHotKey()
         UserDefaults.standard.set(input, forKey: "DoubleTapHotkeyInput")
-        statusText = "Exit / restore shortcut set to \(displayString(for: currentDoubleTapHotKeyModifiers, keyCode: currentDoubleTapHotKeyCode))."
+        statusText = "Glance shortcut set to \(displayString(for: currentDoubleTapHotKeyModifiers, keyCode: currentDoubleTapHotKeyCode))."
     }
 
     private func applyPrimaryDoubleTapKeyFromInput() {
@@ -592,7 +551,7 @@ final class AppCoordinator: ObservableObject {
         doubleTapSingleKeyInput = keySymbol(for: keyCode)
         resetDoublePressDates()
         UserDefaults.standard.set(doubleTapSingleKeyInput, forKey: "DoubleTapSingleKeyInput")
-        statusText = "Exit / restore single key set to \(doubleTapSingleKeyInput)."
+        statusText = "Glance single key set to \(doubleTapSingleKeyInput)."
     }
 
     private func parseHotkey(from input: String) -> (keyCode: UInt32, modifiers: UInt32)? {
@@ -773,11 +732,6 @@ final class AppCoordinator: ObservableObject {
     }
 
     private func stopActivePiPFromPrimaryShortcut() async {
-        if activePiPBehavior.cachesRestoreSnapshot {
-            cacheCurrentPiPForRestore()
-        } else {
-            clearLastExitedPiPSnapshot()
-        }
         await stopPiP(restoreSource: true, focusSource: false)
     }
 
@@ -826,7 +780,6 @@ final class AppCoordinator: ObservableObject {
             return
         }
 
-        clearLastExitedPiPSnapshot()
         await beginPiP(
             for: target,
             behavior: .passiveAutomatic,
@@ -857,8 +810,8 @@ final class AppCoordinator: ObservableObject {
         }
 
         statusText = hoverSwitchEnabled
-            ? "Glancing at source window. Hover over the return PiP or press ⌥P to return focus to PiP."
-            : "Glancing at source window. Press ⌥P to return focus to PiP."
+            ? "Glancing at source window. Hover over the return PiP or press \(glanceShortcutInstructionText) to return to PiP."
+            : "Glancing at source window. Press \(glanceShortcutInstructionText) to return to PiP."
         print("[AppsPIP] glanceAtSourceWindow completed. isGlancing is now true.")
     }
 
@@ -892,9 +845,6 @@ final class AppCoordinator: ObservableObject {
             toggleGlance()
         case .passiveAutomatic:
             Task {
-                if activePiPBehavior.cachesRestoreSnapshot {
-                    cacheCurrentPiPForRestore()
-                }
                 returnAutomaticPiPToSource()
                 await stopPiP(restoreSource: false, focusSource: false)
             }
@@ -943,8 +893,8 @@ final class AppCoordinator: ObservableObject {
         isGlancing = true
         pipWindowController?.setGlancing(true)
         statusText = hoverSwitchEnabled
-            ? "Source window is active. Leave it to return to PiP, or hover over the return PiP to send it back."
-            : "Source window is active. Leave it to return to PiP."
+            ? "Source window is active. Leave it to return to PiP, hover over the return PiP, or press \(glanceShortcutInstructionText)."
+            : "Source window is active. Leave it to return to PiP, or press \(glanceShortcutInstructionText)."
     }
 
     private func shouldIgnoreIncidentalSourceActivation() -> Bool {
@@ -1009,21 +959,6 @@ final class AppCoordinator: ObservableObject {
         statusText = "Ready. Press ⌥P to create PiP from the frontmost window."
     }
 
-    private func cacheCurrentPiPForRestore() {
-        guard let target = activeTarget else { return }
-        lastExitedTargetSnapshot = target
-        lastExitedSourceFrameSnapshot = sourceVisibleFrame ?? target.frame
-        lastExitedHideStrategySnapshot = sourceHideStrategy
-        lastExitedHoverSwitchEnabledSnapshot = hoverSwitchEnabled
-    }
-
-    private func clearLastExitedPiPSnapshot() {
-        lastExitedTargetSnapshot = nil
-        lastExitedSourceFrameSnapshot = nil
-        lastExitedHideStrategySnapshot = nil
-        lastExitedHoverSwitchEnabledSnapshot = nil
-    }
-
     private func installEscapeMonitors() {
         removeEscapeMonitors()
 
@@ -1052,10 +987,6 @@ final class AppCoordinator: ObservableObject {
     private func handlePotentialEscape(_ event: NSEvent) {
         guard !isHotKeyRecordingActive else { return }
 
-        if event.keyCode == UInt16(kVK_Escape) {
-            handleSingleEscapePress()
-        }
-
         let shortcutModifiers = event.modifierFlags.intersection([.command, .option, .shift, .control])
         guard shortcutModifiers.isEmpty else { return }
 
@@ -1069,7 +1000,7 @@ final class AppCoordinator: ObservableObject {
         if doubleTapShortcutMode == .singleKey,
            event.keyCode == currentDoubleTapSingleKeyCode {
             resetDoublePressDates()
-            handleDoubleTapKeyAction()
+            handleGlanceShortcut()
             return
         }
 
@@ -1086,8 +1017,13 @@ final class AppCoordinator: ObservableObject {
            event.keyCode == currentDoubleTapKeyCode {
             if isDoublePress(storedPressDate: &lastDoubleTapKeyPressDate) {
                 resetDoublePressDates()
-                handleDoubleTapKeyAction()
+                handleGlanceShortcut()
             }
+            return
+        }
+
+        if event.keyCode == UInt16(kVK_Escape) {
+            handleSingleEscapePress()
         }
     }
 
@@ -1129,9 +1065,9 @@ final class AppCoordinator: ObservableObject {
         let interactionHint: String
         switch activePiPBehavior {
         case .interactive:
-            interactionHint = "Click the PiP or press \(hotkeyInput) to glance; click Exit to stop."
+            interactionHint = "Click the PiP or press \(glanceShortcutInstructionText) to glance or return; click Exit to stop."
         case .passiveAutomatic:
-            interactionHint = "Click the PiP to return to the app, or press \(doubleTapActionInstructionText) to exit this PiP."
+            interactionHint = "Click the PiP to return to the app, or press \(glanceShortcutInstructionText) to bring PiP forward."
         }
 
         switch sourceHideStrategy {

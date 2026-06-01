@@ -53,7 +53,7 @@ struct ContentView: View {
                 save: savePrimaryShortcut
             )
             shortcutRow(
-                title: "Restore or Exit Last PiP",
+                title: "Glance / Return to PiP",
                 mode: doubleTapShortcutModeBinding,
                 text: doubleTapShortcutTextBinding,
                 save: saveDoubleTapShortcut
