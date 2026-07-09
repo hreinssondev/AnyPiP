@@ -23,7 +23,7 @@ final class PiPCloseButton: NSButton {
 
 final class HoverTrackingView: NSView {
     var onHoverChanged: ((Bool, NSPoint) -> Void)?
-    var onHoverEntered: (() -> Void)?
+    var onHoverEntered: ((NSPoint) -> Void)?
     private var trackingArea: NSTrackingArea?
     private let hoverActivationInset: CGFloat = 10
     private var isInsideHoverActivationZone = false
@@ -77,7 +77,7 @@ final class HoverTrackingView: NSView {
 
         guard !isInsideHoverActivationZone else { return }
         isInsideHoverActivationZone = true
-        onHoverEntered?()
+        onHoverEntered?(location)
     }
 
     private func shouldTriggerHover(at location: NSPoint) -> Bool {
@@ -198,9 +198,12 @@ final class ResizeCornerHandleView: NSView {
 
 final class PiPWindowController: NSWindowController {
     private static let savedFrameKey = "PiPWindowFrame"
+    private static let savedSizeKey = "PiPWindowSize"
     private static let minimumWindowSize = NSSize(width: 220, height: 124)
     private static let resizeHandleSize: CGFloat = 16
     private static let clickMovementTolerance: CGFloat = 3
+    private static let slowDoubleClickDelay: TimeInterval = 1.2
+    private static let hoverCornerMargin: CGFloat = 24
 
     private let previewView = CapturePreviewView(frame: .zero)
     private let glanceOverlayView = FirstMouseVisualEffectView()
@@ -234,19 +237,45 @@ final class PiPWindowController: NSWindowController {
     private var exitButtonTrailingConstraint: NSLayoutConstraint?
     private var frameBeforeGlance: CGRect?
     private var isSwitchAnimationInProgress = false
+    private var isHoverCornerAnimationInProgress = false
     private var lastHoverSwitchTriggerDate: Date?
     private let hoverSwitchCooldown: TimeInterval = 0.5
+    private var lastHoverCornerMoveDate: Date?
+    private let hoverCornerMoveCooldown: TimeInterval = 0.35
     private let sourceAspectRatio: CGFloat
     private var isAdjustingResizeFrame = false
     private var clickStartWindowOrigin: CGPoint?
+    private var lastPiPClickDate: Date?
+    private var lastProcessedPiPClickEventTimestamp: TimeInterval?
     var onClose: (() -> Void)?
 
-    init(title: String, sourceFrame: CGRect, restoredFrame: CGRect?, shouldPersistFrame: Bool = true) {
+    private enum Corner: Int, CaseIterable {
+        case topLeft
+        case topRight
+        case bottomRight
+        case bottomLeft
+
+        var next: Corner {
+            Corner(rawValue: (rawValue + 1) % Self.allCases.count)!
+        }
+    }
+
+    init(
+        title: String,
+        sourceFrame: CGRect,
+        restoredFrame: CGRect?,
+        restoredSize: CGSize?,
+        shouldPersistFrame: Bool = true
+    ) {
         self.title = title
         self.shouldPersistFrame = shouldPersistFrame
         self.sourceAspectRatio = max(sourceFrame.width, 1) / max(sourceFrame.height, 1)
 
-        let initialFrame = Self.initialFrame(for: sourceFrame, restoredFrame: restoredFrame)
+        let initialFrame = Self.initialFrame(
+            for: sourceFrame,
+            restoredFrame: restoredFrame,
+            restoredSize: restoredSize
+        )
         let window = NSPanel(
             contentRect: initialFrame,
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
@@ -309,8 +338,12 @@ final class PiPWindowController: NSWindowController {
     }
 
     func persistFrame() {
-        guard shouldPersistFrame, let window else { return }
-        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.savedFrameKey)
+        guard let window else { return }
+        let frameToPersist = frameBeforeGlance ?? window.frame
+        UserDefaults.standard.set(NSStringFromSize(frameToPersist.size), forKey: Self.savedSizeKey)
+
+        guard shouldPersistFrame else { return }
+        UserDefaults.standard.set(NSStringFromRect(frameToPersist), forKey: Self.savedFrameKey)
     }
 
     static func restoredFrame() -> CGRect? {
@@ -318,6 +351,13 @@ final class PiPWindowController: NSWindowController {
         let rect = NSRectFromString(stored)
         guard rect.width > 0, rect.height > 0 else { return nil }
         return rect
+    }
+
+    static func restoredSize() -> CGSize? {
+        guard let stored = UserDefaults.standard.string(forKey: savedSizeKey) else { return nil }
+        let size = NSSizeFromString(stored)
+        guard size.width > 0, size.height > 0 else { return nil }
+        return size
     }
 
     func setGlancing(_ glancing: Bool, animated: Bool = true) {
@@ -353,8 +393,8 @@ final class PiPWindowController: NSWindowController {
         root.onHoverChanged = { [weak self] isInside, location in
             self?.updateExitButtonVisibility(isInside: isInside, location: location)
         }
-        root.onHoverEntered = { [weak self] in
-            self?.handleHoverEntered()
+        root.onHoverEntered = { [weak self] location in
+            self?.handleHoverEntered(at: location)
         }
 
         // 1. Live video preview view
@@ -389,17 +429,17 @@ final class PiPWindowController: NSWindowController {
         root.addSubview(exitButton)
 
         // Setup gestures
-        let rootClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(glanceTapped))
+        let rootClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(pipWindowClicked))
         root.addGestureRecognizer(rootClickRecognizer)
         rootClickRecognizer.delegate = self
         self.rootClickRecognizer = rootClickRecognizer
 
-        let previewClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(glanceTapped))
+        let previewClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(pipWindowClicked))
         previewView.addGestureRecognizer(previewClickRecognizer)
         previewClickRecognizer.delegate = self
         self.previewClickRecognizer = previewClickRecognizer
 
-        let overlayClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(glanceTapped))
+        let overlayClickRecognizer = NSClickGestureRecognizer(target: self, action: #selector(pipWindowClicked))
         glanceOverlayView.addGestureRecognizer(overlayClickRecognizer)
         overlayClickRecognizer.delegate = self
         self.overlayClickRecognizer = overlayClickRecognizer
@@ -467,17 +507,39 @@ final class PiPWindowController: NSWindowController {
         return root
     }
 
-    @objc private func glanceTapped() {
-        guard didStayWithinClickMovementTolerance() else { return }
-        onGlance?()
+    @objc private func pipWindowClicked() {
+        guard shouldProcessPiPClickEvent() else { return }
+        guard didStayWithinClickMovementTolerance() else {
+            resetPiPClickSequence()
+            return
+        }
+
+        let now = Date()
+        if let lastPiPClickDate,
+           now.timeIntervalSince(lastPiPClickDate) <= Self.slowDoubleClickDelay {
+            resetPiPClickSequence()
+            onGlance?()
+            return
+        }
+
+        lastPiPClickDate = now
     }
 
     @objc private func closeTapped() {
         onClose?()
     }
 
-    private func handleHoverEntered() {
-        guard allowsInteractiveControls, hoverSwitchEnabled, !isSwitchAnimationInProgress else { return }
+    private func handleHoverEntered(at location: NSPoint) {
+        guard allowsInteractiveControls else { return }
+        if hoverSwitchEnabled {
+            handleHoverSwitchEntered()
+        } else {
+            moveToNextCornerFromHover(at: location)
+        }
+    }
+
+    private func handleHoverSwitchEntered() {
+        guard !isSwitchAnimationInProgress else { return }
         let now = Date()
         if let lastHoverSwitchTriggerDate,
            now.timeIntervalSince(lastHoverSwitchTriggerDate) < hoverSwitchCooldown {
@@ -487,11 +549,44 @@ final class PiPWindowController: NSWindowController {
         onGlance?()
     }
 
+    private func moveToNextCornerFromHover(at location: NSPoint) {
+        guard !isSwitchAnimationInProgress, !isHoverCornerAnimationInProgress else { return }
+        guard !isInsideExitButtonHitArea(location) else { return }
+
+        let now = Date()
+        if let lastHoverCornerMoveDate,
+           now.timeIntervalSince(lastHoverCornerMoveDate) < hoverCornerMoveCooldown {
+            return
+        }
+        lastHoverCornerMoveDate = now
+
+        guard let window,
+              let screen = screen(containing: window.frame) ?? window.screen ?? NSScreen.main else {
+            return
+        }
+
+        let currentCorner = nearestCorner(to: window.frame, on: screen)
+        let targetFrame = frame(for: currentCorner.next, on: screen, matching: window.frame.size)
+
+        isHoverCornerAnimationInProgress = true
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.32
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(targetFrame, display: true)
+        } completionHandler: {
+            self.isHoverCornerAnimationInProgress = false
+            self.persistFrame()
+        }
+    }
+
     private func updateInteractionMode() {
         let clicksEnabled = allowsClickToSource && !hoverSwitchEnabled
         rootClickRecognizer?.isEnabled = clicksEnabled
         previewClickRecognizer?.isEnabled = clicksEnabled
         overlayClickRecognizer?.isEnabled = clicksEnabled
+        if !clicksEnabled {
+            resetPiPClickSequence(clearProcessedEvent: true)
+        }
     }
 
     private func animateParkingIfNeeded(animated: Bool) {
@@ -544,41 +639,111 @@ final class PiPWindowController: NSWindowController {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    private static func initialFrame(for sourceFrame: CGRect, restoredFrame: CGRect?) -> CGRect {
+    private func isInsideExitButtonHitArea(_ location: NSPoint) -> Bool {
+        guard let rootView = exitButton?.superview else { return false }
+        let locationInRoot = rootView.convert(location, from: nil)
+        return exitButton.frame.insetBy(dx: -8, dy: -8).contains(locationInRoot)
+    }
+
+    private func screen(containing frame: CGRect) -> NSScreen? {
+        NSScreen.screens.max { lhs, rhs in
+            lhs.visibleFrame.intersection(frame).area < rhs.visibleFrame.intersection(frame).area
+        }
+    }
+
+    private func nearestCorner(to frame: CGRect, on screen: NSScreen) -> Corner {
+        let visibleFrame = screen.visibleFrame
+        let distances: [(corner: Corner, distance: CGFloat)] = Corner.allCases.map { corner in
+            let cornerFrame = self.frame(for: corner, on: screen, matching: frame.size)
+            let distance = hypot(frame.midX - cornerFrame.midX, frame.midY - cornerFrame.midY)
+            return (corner, distance)
+        }
+        return distances.min { lhs, rhs in
+            if lhs.distance == rhs.distance {
+                return lhs.corner.rawValue < rhs.corner.rawValue
+            }
+            return lhs.distance < rhs.distance
+        }?.corner ?? (frame.midX < visibleFrame.midX ? .topLeft : .topRight)
+    }
+
+    private func frame(for corner: Corner, on screen: NSScreen, matching size: CGSize) -> CGRect {
+        let visibleFrame = screen.visibleFrame
+        let width = max(Self.minimumWindowSize.width, size.width)
+        let height = max(Self.minimumWindowSize.height, size.height)
+        let margin = Self.hoverCornerMargin
+
+        let x: CGFloat
+        let y: CGFloat
+        switch corner {
+        case .topLeft:
+            x = visibleFrame.minX + margin
+            y = visibleFrame.maxY - height - margin
+        case .topRight:
+            x = visibleFrame.maxX - width - margin
+            y = visibleFrame.maxY - height - margin
+        case .bottomRight:
+            x = visibleFrame.maxX - width - margin
+            y = visibleFrame.minY + margin
+        case .bottomLeft:
+            x = visibleFrame.minX + margin
+            y = visibleFrame.minY + margin
+        }
+
+        return Self.sanitize(frame: CGRect(x: x, y: y, width: width, height: height))
+    }
+
+    private static func initialFrame(
+        for sourceFrame: CGRect,
+        restoredFrame: CGRect?,
+        restoredSize: CGSize?
+    ) -> CGRect {
         let aspect = max(sourceFrame.width, 1) / max(sourceFrame.height, 1)
+        let rememberedSize = restoredSize.map { size(matching: $0, aspect: aspect) }
 
         if let restoredFrame {
-            return sanitizeRestoredFrame(restoredFrame, aspect: aspect)
+            return sanitizeRestoredFrame(restoredFrame, aspect: aspect, restoredSize: rememberedSize)
         }
 
         guard let screen = NSScreen.main else {
-            return sanitize(frame: CGRect(x: 100, y: 100, width: 360, height: 220))
+            let fallbackSize = rememberedSize ?? CGSize(width: 360, height: 220)
+            return sanitize(frame: CGRect(x: 100, y: 100, width: fallbackSize.width, height: fallbackSize.height))
         }
 
         let visible = screen.visibleFrame
-        let width: CGFloat = 360
-        let height = width / aspect
+        let width = rememberedSize?.width ?? 360
+        let height = rememberedSize?.height ?? width / aspect
         let x = visible.maxX - width - 29
         let y = visible.maxY - height - 27
         return sanitize(frame: CGRect(x: x, y: y, width: width, height: height))
     }
 
-    private static func sanitizeRestoredFrame(_ restoredFrame: CGRect, aspect: CGFloat) -> CGRect {
-        let area = max(restoredFrame.width * restoredFrame.height, minimumWindowSize.width * minimumWindowSize.height)
+    private static func sanitizeRestoredFrame(
+        _ restoredFrame: CGRect,
+        aspect: CGFloat,
+        restoredSize: CGSize?
+    ) -> CGRect {
+        let size = restoredSize ?? size(matching: restoredFrame.size, aspect: aspect)
+        let center = CGPoint(x: restoredFrame.midX, y: restoredFrame.midY)
+        return sanitize(frame: CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        ))
+    }
+
+    private static func size(matching size: CGSize, aspect: CGFloat) -> CGSize {
+        let area = max(size.width * size.height, minimumWindowSize.width * minimumWindowSize.height)
         var width = max(minimumWindowSize.width, sqrt(area * aspect))
-        let height = max(minimumWindowSize.height, width / aspect)
+        var height = max(minimumWindowSize.height, width / aspect)
 
         if height == minimumWindowSize.height {
             width = max(minimumWindowSize.width, height * aspect)
+        } else if width == minimumWindowSize.width {
+            height = max(minimumWindowSize.height, width / aspect)
         }
 
-        let center = CGPoint(x: restoredFrame.midX, y: restoredFrame.midY)
-        return sanitize(frame: CGRect(
-            x: center.x - width / 2,
-            y: center.y - height / 2,
-            width: width,
-            height: height
-        ))
+        return CGSize(width: width, height: height)
     }
 
     private static func sanitize(frame: CGRect) -> CGRect {
@@ -593,6 +758,13 @@ final class PiPWindowController: NSWindowController {
         }
 
         return sanitized
+    }
+}
+
+private extension CGRect {
+    var area: CGFloat {
+        guard !isNull, !isEmpty else { return 0 }
+        return width * height
     }
 }
 
@@ -651,6 +823,24 @@ extension PiPWindowController: NSGestureRecognizerDelegate {
 }
 
 extension PiPWindowController {
+    private func shouldProcessPiPClickEvent() -> Bool {
+        guard let eventTimestamp = NSApp.currentEvent?.timestamp else {
+            return true
+        }
+        guard lastProcessedPiPClickEventTimestamp != eventTimestamp else {
+            return false
+        }
+        lastProcessedPiPClickEventTimestamp = eventTimestamp
+        return true
+    }
+
+    private func resetPiPClickSequence(clearProcessedEvent: Bool = false) {
+        lastPiPClickDate = nil
+        if clearProcessedEvent {
+            lastProcessedPiPClickEventTimestamp = nil
+        }
+    }
+
     private func didStayWithinClickMovementTolerance() -> Bool {
         guard let clickStartWindowOrigin, let currentWindowOrigin = window?.frame.origin else {
             return true
