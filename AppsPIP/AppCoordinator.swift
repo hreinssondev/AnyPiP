@@ -106,6 +106,7 @@ final class AppCoordinator: ObservableObject {
     private let shouldFallBackToFakeHideAfterPrivateAlphaFailure = false
     private var lastPrimaryDoublePressDate: Date?
     private var lastDoubleTapKeyPressDate: Date?
+    private var lastEscapePressDate: Date?
     private var isHotKeyRecordingActive = false
     private var activePiPBehavior: PiPEntryBehavior = .interactive
     private var lastObservedActivatedApp: NSRunningApplication?
@@ -348,11 +349,16 @@ final class AppCoordinator: ObservableObject {
         }
     }
 
-    private func handleSingleEscapePress() {
-        guard activeTarget != nil else { return }
-        lastPrimaryDoublePressDate = nil
-        lastDoubleTapKeyPressDate = nil
-        exitPiP()
+    private func handleEscapePress() {
+        guard activeTarget != nil else {
+            lastEscapePressDate = nil
+            return
+        }
+
+        if isDoublePress(storedPressDate: &lastEscapePressDate) {
+            resetDoublePressDates()
+            exitPiP()
+        }
     }
 
     private func isDoublePress(storedPressDate: inout Date?) -> Bool {
@@ -372,6 +378,7 @@ final class AppCoordinator: ObservableObject {
     private func resetDoublePressDates() {
         lastPrimaryDoublePressDate = nil
         lastDoubleTapKeyPressDate = nil
+        lastEscapePressDate = nil
     }
 
     private func handleGlanceShortcut() {
@@ -1023,7 +1030,7 @@ final class AppCoordinator: ObservableObject {
         }
 
         if event.keyCode == UInt16(kVK_Escape) {
-            handleSingleEscapePress()
+            handleEscapePress()
         }
     }
 
@@ -1147,6 +1154,7 @@ final class AppCoordinator: ObservableObject {
             title: target.appName,
             sourceFrame: target.frame,
             restoredFrame: behavior.usesSavedManualFrame ? PiPWindowController.restoredFrame() : nil,
+            restoredSize: PiPWindowController.restoredSize(),
             shouldPersistFrame: behavior.usesSavedManualFrame
         )
         pipWindowController.hoverSwitchEnabled = behavior.allowsInteractiveControls ? hoverSwitchEnabled : false

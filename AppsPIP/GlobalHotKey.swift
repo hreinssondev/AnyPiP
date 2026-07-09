@@ -2,6 +2,7 @@ import Carbon.HIToolbox
 import Foundation
 
 final class GlobalHotKey {
+    private static let signature = FourCharCode("APIP")
     private static var actions: [UInt32: () -> Void] = [:]
     private static var nextID: UInt32 = 1
     private static var handlerRef: EventHandlerRef?
@@ -16,7 +17,7 @@ final class GlobalHotKey {
         Self.nextID += 1
         Self.actions[id] = action
 
-        var hotKeyID = EventHotKeyID(signature: FourCharCode("APIP"), id: id)
+        var hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
@@ -32,7 +33,9 @@ final class GlobalHotKey {
 
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, _ -> OSStatus in
-            guard let event else { return noErr }
+            guard let event else {
+                return OSStatus(eventNotHandledErr)
+            }
 
             var hotKeyID = EventHotKeyID()
             let status = GetEventParameter(
@@ -45,10 +48,13 @@ final class GlobalHotKey {
                 &hotKeyID
             )
 
-            if status == noErr, let action = GlobalHotKey.actions[hotKeyID.id] {
-                DispatchQueue.main.async(execute: action)
+            guard status == noErr,
+                  hotKeyID.signature == GlobalHotKey.signature,
+                  let action = GlobalHotKey.actions[hotKeyID.id] else {
+                return OSStatus(eventNotHandledErr)
             }
 
+            DispatchQueue.main.async(execute: action)
             return noErr
         }, 1, &eventType, nil, &handlerRef)
     }
