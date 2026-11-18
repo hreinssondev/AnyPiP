@@ -239,7 +239,7 @@ final class AppCoordinator: ObservableObject {
                 coordinator?.handleApplicationTermination(terminatedApp)
             }
         }
-        installEscapeMonitors()
+        updateKeyMonitors()
         refreshAvailableAutoPiPApps()
     }
 
@@ -450,6 +450,7 @@ final class AppCoordinator: ObservableObject {
         hotKey = nil
         registerHotKey()
         resetDoublePressDates()
+        updateKeyMonitors()
     }
 
     func setDoubleTapShortcutMode(_ mode: ShortcutTriggerMode) {
@@ -811,6 +812,7 @@ final class AppCoordinator: ObservableObject {
 
         isGlancing = true
         pipWindowController?.setGlancing(true)
+        updateCaptureForGlanceState()
 
         // 2. Activate and focus the target application to bring it to the frontmost layer
         if let app = NSRunningApplication(processIdentifier: target.processID) {
@@ -835,6 +837,7 @@ final class AppCoordinator: ObservableObject {
             sourceVisibleFrame = currentFrame
         }
         isGlancing = false
+        updateCaptureForGlanceState()
         hideSourceWindow()
         pipWindowController?.setGlancing(false)
         pipWindowController?.show()
@@ -844,6 +847,29 @@ final class AppCoordinator: ObservableObject {
         }
         appActiveBeforeGlance = nil
         print("[AppsPIP] sendBackToPiP completed. isGlancing is now false.")
+    }
+
+    /// Screen capture only runs while the PiP is showing live video. While glancing, the source
+    /// window is on screen and the PiP is hidden or parked, so the stream is fully stopped.
+    private func updateCaptureForGlanceState() {
+        guard let captureSession, let target = activeTarget else { return }
+
+        Task { @MainActor in
+            guard self.captureSession === captureSession else { return }
+
+            if self.isGlancing {
+                await captureSession.stop()
+                return
+            }
+
+            do {
+                try await captureSession.start(windowID: target.windowID)
+            } catch {
+                guard self.captureSession === captureSession else { return }
+                self.statusText = error.localizedDescription
+                await self.stopPiP(restoreSource: true)
+            }
+        }
     }
 
     private func toggleGlance() {
@@ -919,6 +945,7 @@ final class AppCoordinator: ObservableObject {
 
         isGlancing = true
         pipWindowController?.setGlancing(true)
+        updateCaptureForGlanceState()
         statusText = hoverSwitchEnabled
             ? "Source window is active. Leave it to return to PiP, hover over the return PiP, or press \(glanceShortcutInstructionText)."
             : "Source window is active. Leave it to return to PiP, or press \(glanceShortcutInstructionText)."
@@ -952,6 +979,7 @@ final class AppCoordinator: ObservableObject {
         activePiPBehavior = .interactive
         automaticPiPStartInFlightProcessID = nil
         ignoreNextSourceActivationUntil = nil
+        updateKeyMonitors()
 
         await captureSession?.stop()
         captureSession = nil
@@ -985,6 +1013,17 @@ final class AppCoordinator: ObservableObject {
         }
 
         statusText = "Ready. Press ⌥P to create PiP from the frontmost window."
+    }
+
+    /// The global monitor sees every keystroke, so it only runs while a PiP session exists, or when
+    /// the primary shortcut is a plain key / double press and is needed to start PiP.
+    private func updateKeyMonitors() {
+        let needsMonitors = activeTarget != nil || primaryShortcutMode != .modifierKey
+        if !needsMonitors {
+            removeEscapeMonitors()
+        } else if globalKeyDownMonitor == nil {
+            installEscapeMonitors()
+        }
     }
 
     private func installEscapeMonitors() {
@@ -1170,6 +1209,7 @@ final class AppCoordinator: ObservableObject {
         activeTarget = target
         sourceVisibleFrame = sourceFrame
         activeTargetDescription = "\(target.appName): \(target.title)"
+        updateKeyMonitors()
 
         let pipWindowController = PiPWindowController(
             title: target.appName,
@@ -1199,6 +1239,7 @@ final class AppCoordinator: ObservableObject {
 
         do {
             try await captureSession.start(windowID: target.windowID)
+            guard self.captureSession === captureSession else { return }
             pipWindowController.show()
             hideSourceWindow()
             statusText = runningStatusText

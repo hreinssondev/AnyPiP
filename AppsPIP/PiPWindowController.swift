@@ -368,8 +368,8 @@ final class PiPWindowController: NSWindowController {
         }
 
         if glancing {
-            previewView.flush()
             if hoverSwitchEnabled {
+                previewView.flush()
                 glanceOverlayView.isHidden = false
                 animateParkingIfNeeded(animated: shouldAnimate)
             } else {
