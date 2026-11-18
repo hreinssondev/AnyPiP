@@ -48,6 +48,14 @@ struct AccessibilityWindowController {
         AXUIElementPerformAction(window, kAXRaiseAction as CFString)
     }
 
+    /// Like `restore`, but also makes the window its app's main window, so activating the app
+    /// brings only this window forward rather than whichever window was main before.
+    static func focus(_ window: AXUIElement) {
+        AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+    }
+
     static func currentFrame(of window: AXUIElement) -> CGRect? {
         frameAttribute(from: window)
     }

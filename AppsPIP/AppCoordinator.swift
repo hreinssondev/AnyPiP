@@ -95,6 +95,7 @@ final class AppCoordinator: ObservableObject {
     private var sourceHideStrategy: SourceHideStrategy?
     private var hiddenApp: NSRunningApplication?
     private var isGlancing = false
+    private var appActiveBeforeGlance: NSRunningApplication?
     private var streamErrorObserver: NSObjectProtocol?
     private var appWillTerminateObserver: NSObjectProtocol?
     private var appActivationObserver: NSObjectProtocol?
@@ -210,7 +211,7 @@ final class AppCoordinator: ObservableObject {
                 if self.isGlancing,
                    let target = self.activeTarget,
                    activatedApp.processIdentifier != target.processID {
-                    self.sendBackToPiP()
+                    self.sendBackToPiP(reactivatingPreviousApp: false)
                 }
 
                 if self.shouldShowSourceForManualPiPAfterSourceActivation(activatedApp) {
@@ -801,11 +802,12 @@ final class AppCoordinator: ObservableObject {
             print("[AppsPIP] glanceAtSourceWindow aborted: activeTarget or sourceVisibleFrame is nil")
             return 
         }
+        appActiveBeforeGlance = NSWorkspace.shared.frontmostApplication
         
-        // 1. Un-park and raise the target window
+        // 1. Un-park the target window and make it main, so activation doesn't also raise the app's other windows
         privateWindowAlphaController?.restore(windowID: target.windowID)
         AccessibilityWindowController.setFrame(sourceVisibleFrame, of: target.accessibilityWindow)
-        AccessibilityWindowController.restore(target.accessibilityWindow)
+        AccessibilityWindowController.focus(target.accessibilityWindow)
 
         isGlancing = true
         pipWindowController?.setGlancing(true)
@@ -822,7 +824,10 @@ final class AppCoordinator: ObservableObject {
         print("[AppsPIP] glanceAtSourceWindow completed. isGlancing is now true.")
     }
 
-    private func sendBackToPiP() {
+    /// `reactivatingPreviousApp` hands focus back to the app that was frontmost before the glance,
+    /// so the source app's other windows don't stay on top. It's false when the user already left
+    /// the source app for another one.
+    private func sendBackToPiP(reactivatingPreviousApp: Bool = true) {
         print("[AppsPIP] sendBackToPiP starting.")
         if let target = activeTarget,
            let currentFrame = AccessibilityWindowController.currentFrame(of: target.accessibilityWindow) {
@@ -834,6 +839,10 @@ final class AppCoordinator: ObservableObject {
         pipWindowController?.setGlancing(false)
         pipWindowController?.show()
         statusText = runningStatusText
+        if reactivatingPreviousApp {
+            reactivateAppActiveBeforeGlance()
+        }
+        appActiveBeforeGlance = nil
         print("[AppsPIP] sendBackToPiP completed. isGlancing is now false.")
     }
 
@@ -844,6 +853,16 @@ final class AppCoordinator: ObservableObject {
         } else {
             glanceAtSourceWindow()
         }
+    }
+
+    private func reactivateAppActiveBeforeGlance() {
+        guard let app = appActiveBeforeGlance,
+              !app.isTerminated,
+              app.processIdentifier != activeTarget?.processID,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            return
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
     }
 
     private func handlePiPClick() {
@@ -892,6 +911,7 @@ final class AppCoordinator: ObservableObject {
 
     private func showSourceForManualPiPAfterSourceActivation() {
         guard let target = activeTarget, let sourceVisibleFrame else { return }
+        appActiveBeforeGlance = lastObservedActivatedApp
 
         privateWindowAlphaController?.restore(windowID: target.windowID)
         AccessibilityWindowController.setFrame(sourceVisibleFrame, of: target.accessibilityWindow)
@@ -928,6 +948,7 @@ final class AppCoordinator: ObservableObject {
         sourceVisibleFrame = nil
         sourceHideStrategy = nil
         isGlancing = false
+        appActiveBeforeGlance = nil
         activePiPBehavior = .interactive
         automaticPiPStartInFlightProcessID = nil
         ignoreNextSourceActivationUntil = nil
